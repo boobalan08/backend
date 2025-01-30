@@ -44,40 +44,45 @@ const signUpSchema = Joi.object({
 // Reset Password validation schema
 const resetPasswordSchema = Joi.object({
   email: Joi.string().email().required().messages({
-    "string.base": "Email should be a string",
-    "string.email": "Email must be a valid email address",
+    "string.email": "Invalid email format",
     "any.required": "Email is required",
   }),
   newPassword: Joi.string().min(6).required().messages({
-    "string.base": "Password should be a string",
-    "string.min": "Password should be at least 6 characters",
-    "any.required": "Password is required",
+    "string.min": "Password must be at least 6 characters",
+    "any.required": "New password is required",
   }),
 });
-
-
 
 const signIn = async (req, res) => {
   const { email, password } = req.body;
 
   // Validate request body
   const { error } = signInSchema.validate({ email, password });
-  if (error) return res.status(400).send({ success: false, message: error.details[0].message });
+  if (error)
+    return res
+      .status(400)
+      .send({ success: false, message: error.details[0].message });
 
   try {
     const user = await User.findOne({ where: { email } });
     if (!user)
-      return res.status(400).send({ success: false, message: "User not found" });
-   
+      return res
+        .status(400)
+        .send({ success: false, message: "User not found" });
+
     const isValid = await bcrypt.compare(password, user.password);
     console.log("Password Match:", isValid);
     if (!isValid)
-      return res.status(400).send({ success: false, message: "Invalid password" });
+      return res
+        .status(400)
+        .send({ success: false, message: "Invalid password" });
 
     const token = jwt.sign({ id: user.id }, JWT_SECRET, {
       expiresIn: "1d",
     });
-    res.status(200).send({ success: true, message: "Login successful", token, user });
+    res
+      .status(200)
+      .send({ success: true, message: "Login successful", token, user });
   } catch (err) {
     res.status(500).send({ message: "Error logging in", error: err.message });
   }
@@ -86,21 +91,33 @@ const signIn = async (req, res) => {
 const signUp = async (req, res) => {
   const { username, email, password } = req.body;
 
-  // Validate request body
-  const { error } = signUpSchema.validate({ username, email, password });
-  if (error) return res.status(400).send({ success: false, message: error.details[0].message });
+  // Validate request body using Joi
+  const { error } = signUpSchema.validate(
+    { username, email, password },
+    { abortEarly: false }
+  );
+
+  if (error) {
+    return res.status(400).json({
+      success: false,
+      errors: error.details.map((err) => ({
+        field: err.path[0], // Extracts the field name
+        message: err.message,
+      })),
+    });
+  }
 
   try {
     const existingUser = await User.findOne({
-      where: {
-        [Op.or]: [{ email }, { username }],
-      },
+      where: { [Op.or]: [{ email }, { username }] },
     });
 
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: "Username or email already in use",
+        errors: [
+          { field: "email", message: "Username or email already in use" },
+        ],
       });
     }
 
@@ -130,17 +147,27 @@ const resetPassword = async (req, res) => {
 
   // Validate request body
   const { error } = resetPasswordSchema.validate({ email, newPassword });
-  if (error) return res.status(400).send({ success: false, message: error.details[0].message });
+  if (error) {
+    return res
+      .status(400)
+      .json({ success: false, message: error.details[0].message });
+  }
 
   try {
     const user = await User.findOne({ where: { email } });
-    if (!user)
-      return res.status(400).json({ success: false, message: "User not found" });
+    if (!user) {
+      return res
+        .status(400)
+        .json({ success: false, message: "User with this email not found" });
+    }
 
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(newPassword, salt);
     await user.save();
-    res.status(200).json({ success: true, message: "Password reset successful" });
+
+    res
+      .status(200)
+      .json({ success: true, message: "Password reset successful" });
   } catch (err) {
     res.status(500).json({
       success: false,
